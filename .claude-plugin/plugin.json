@@ -1,7 +1,7 @@
 {
   "name": "lens",
   "description": "See images, SVGs and PDF pages in Claude Code where they appear: pasted, read, written or linked",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "author": { "name": "minhdevtree", "url": "https://github.com/minhdevtree" },
   "homepage": "https://github.com/minhdevtree/claude-lens",
   "repository": "https://github.com/minhdevtree/claude-lens",
@@ -18,6 +18,7 @@
     "links": { "type": "string", "title": "Image links in replies", "description": "Where previews of local image paths in Claude's replies show", "options": ["inline", "pane", "off"], "default": "inline" },
     "toolImages": { "type": "string", "title": "Images tools return", "description": "Where screenshots and other images a tool returns (MCP, browser tools) show", "options": ["inline", "pane", "off"], "default": "inline" },
     "painter": { "type": "string", "title": "Drawing", "description": "auto: real pictures in kitty and Ghostty, colored blocks elsewhere. kitty: pictures only. blocks: colored blocks everywhere. text: file names only", "options": ["auto", "kitty", "blocks", "text"], "default": "auto" },
+    "detail": { "type": "string", "title": "Block detail", "description": "How fine the colored blocks are. auto: sextants (2x3 per cell) in CSM, quadrants (2x2) elsewhere. sextant needs a terminal that draws U+1FB00 glyphs (CSM, kitty, Ghostty, WezTerm). halfblock: 1x2, works everywhere", "options": ["auto", "sextant", "quadrant", "halfblock"], "default": "auto" },
     "maxRows": { "type": "number", "title": "Thumbnail rows", "description": "Tallest a thumbnail may be, in terminal rows (2 to 40)", "default": 10 },
     "pdfPages": { "type": "number", "title": "PDF pages", "description": "How many pages of a PDF to show (1 to 8)", "default": 1 }
   }

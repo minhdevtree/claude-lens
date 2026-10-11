@@ -3,12 +3,16 @@
 export type Kind = 'image' | 'svg' | 'pdf'
 export type Where = 'above' | 'inline' | 'pane' | 'off'
 export type Painter = 'auto' | 'kitty' | 'blocks' | 'text'
+/** How finely the colored blocks divide a cell: 2x3 sextants, 2x2 quadrants, or 1x2 half blocks. */
+export type Detail = 'auto' | 'sextant' | 'quadrant' | 'halfblock'
+export type Mosaic = Exclude<Detail, 'auto'>
 export type Source = 'pasted' | 'read' | 'written' | 'links' | 'toolImages'
 
 export type Config = {
   kinds: Record<Kind, boolean>
   where: Record<Source, Where>
   painter: Painter
+  detail: Detail
   maxRows: number
   pdfPages: number
 }
@@ -31,6 +35,7 @@ export function configOf(o: Record<string, unknown>): Config {
       toolImages: pick(o.toolImages, tool, 'inline'),
     },
     painter: pick(o.painter, ['auto', 'kitty', 'blocks', 'text'], 'auto'),
+    detail: pick(o.detail, ['auto', 'sextant', 'quadrant', 'halfblock'], 'auto'),
     maxRows: clamp(o.maxRows, 2, 40, 10),
     pdfPages: clamp(o.pdfPages, 1, 8, 1),
   }
@@ -190,29 +195,127 @@ export function parsePpm(bytes: Uint8Array): Pixels {
 
 const DEFAULT_COLOR = 0x01000000
 
+
 /**
- * Raster cells for pixels: one column per pixel and one row per two pixel rows, each cell an upper half
- * block whose foreground is the top pixel and background the bottom one. A mostly transparent pixel takes
- * the terminal's own background.
+ * The mosaic `auto` draws with: sextants in CSM (its xterm.js WebGL renderer draws U+1FB00-1FB3B itself, as solid
+ * blocks), quadrants elsewhere (Menlo and most monospace fonts have U+2596-259F; no font macOS ships has sextants).
  */
-export function rasterCells(p: Pixels): { cells: string; columns: number; rows: number } {
-  const columns = p.width, rows = Math.ceil(p.height / 2)
-  const color = (x: number, y: number) => {
-    if (y >= p.height) return DEFAULT_COLOR
-    const o = (y * p.width + x) * 4
-    return p.rgba[o + 3]! < 128 ? DEFAULT_COLOR : (p.rgba[o]! << 16) | (p.rgba[o + 1]! << 8) | p.rgba[o + 2]!
-  }
-  const words = new Uint32Array(columns * rows * 3)
-  for (let r = 0; r < rows; r++) {
-    for (let x = 0; x < columns; x++) {
-      const i = (r * columns + x) * 3
-      words[i] = 0x2580
-      words[i + 1] = color(x, r * 2)
-      words[i + 2] = color(x, r * 2 + 1)
+export const mosaicFor = (detail: Detail, env: { csm: boolean }): Mosaic =>
+  detail !== 'auto' ? detail : env.csm ? 'sextant' : 'quadrant'
+
+/** Pixel samples per cell, across and down, for each mosaic. */
+export const SAMPLES: Record<Mosaic, { x: number; y: number }> = { halfblock: { x: 1, y: 2 }, quadrant: { x: 2, y: 2 }, sextant: { x: 2, y: 3 } }
+
+/** Quadrant glyphs by mask, bit 0 upper left, 1 upper right, 2 lower left, 3 lower right (Block Elements, U+2580-259F). */
+export const QUADRANTS = [
+  0x20, 0x2598, 0x259d, 0x2580, 0x2596, 0x258c, 0x259e, 0x259b,
+  0x2597, 0x259a, 0x2590, 0x259c, 0x2584, 0x2599, 0x259f, 0x2588,
+]
+
+/**
+ * The sextant glyph for a mask, bit n the n+1th of the six sub-cells read row by row (upper left, upper right, middle
+ * left, ...). U+1FB00-1FB3B (Symbols for Legacy Computing) skip the three that Block Elements already have: the empty
+ * cell, the left and right halves and the full block.
+ */
+export function sextantGlyph(mask: number): number {
+  if (mask === 0) return 0x20
+  if (mask === 63) return 0x2588
+  if (mask === 21) return 0x258c
+  if (mask === 42) return 0x2590
+  return 0x1fb00 + mask - 1 - (mask > 21 ? 1 : 0) - (mask > 42 ? 1 : 0)
+}
+
+export type Cell = { glyph: number; fg: number; bg: number }
+
+/**
+ * The two colors and the split that draw `n` samples best: every split of the samples into a foreground and a background
+ * set is tried, each set taking its mean color, and the one with the least squared error wins (2^(n-1) splits: 2 for half
+ * blocks, 8 for quadrants, 32 for sextants). Samples whose alpha is under 128 count as the terminal's own background; a
+ * set made only of them takes the default color. `rgba` holds the n samples, 4 bytes each.
+ */
+export function fitCell(rgba: ArrayLike<number>, n: number): { mask: number; fg: number; bg: number } {
+  const clear = (i: number) => rgba[i * 4 + 3]! < 128
+  // Clear samples are fitted as a mid grey so they group together, then drawn as the default color.
+  const ch = (i: number, c: number) => (clear(i) ? 128 : rgba[i * 4 + c]!)
+  let best = { mask: 0, error: Infinity, fg: 0, bg: 0 }
+  for (let mask = 0; mask < 1 << (n - 1); mask++) {
+    const sums = [[0, 0, 0, 0], [0, 0, 0, 0]] as [number[], number[]]
+    for (let i = 0; i < n; i++) {
+      const s = sums[(mask >> i) & 1]!
+      s[0]! += ch(i, 0); s[1]! += ch(i, 1); s[2]! += ch(i, 2); s[3]! += 1
+    }
+    const mean = sums.map(s => (s[3] === 0 ? [0, 0, 0] : [s[0]! / s[3]!, s[1]! / s[3]!, s[2]! / s[3]!]))
+    let error = 0
+    for (let i = 0; i < n; i++) {
+      const m = mean[(mask >> i) & 1]!
+      error += (ch(i, 0) - m[0]!) ** 2 + (ch(i, 1) - m[1]!) ** 2 + (ch(i, 2) - m[2]!) ** 2
+    }
+    if (error < best.error) {
+      const color = (set: 0 | 1, m: number[]) => {
+        let allClear = true
+        for (let i = 0; i < n; i++) if (((mask >> i) & 1) === set && !clear(i)) allClear = false
+        return allClear ? DEFAULT_COLOR : (Math.round(m[0]!) << 16) | (Math.round(m[1]!) << 8) | Math.round(m[2]!)
+      }
+      best = { mask, error, fg: color(1, mean[1]!), bg: color(0, mean[0]!) }
     }
   }
-  return { cells: new Uint8Array(words.buffer).toBase64(), columns, rows }
+  // Masks are tried with the last sample in the background; when every sample is one color, draw it as background.
+  return { mask: best.mask, fg: best.fg, bg: best.bg }
 }
+
+/** Cells for pixels sampled `SAMPLES[mode]` per cell: `(columns * x) x (rows * y)` pixels in, `columns x rows` cells out. */
+export function mosaicCells(p: Pixels, mode: Mosaic): { columns: number; rows: number; cells: Cell[] } {
+  const { x: sx, y: sy } = SAMPLES[mode]
+  const columns = Math.floor(p.width / sx), rows = Math.ceil(p.height / sy)
+  const n = sx * sy
+  const block = new Uint8Array(n * 4)
+  const cells: Cell[] = []
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < columns; c++) {
+      for (let dy = 0; dy < sy; dy++) {
+        for (let dx = 0; dx < sx; dx++) {
+          const y = r * sy + dy, o = (y * p.width + c * sx + dx) * 4, i = (dy * sx + dx) * 4
+          if (y < p.height) block.set(p.rgba.subarray(o, o + 4), i)
+          else block.fill(0, i, i + 4) // below the last pixel row: clear
+        }
+      }
+      const { mask, fg, bg } = fitCell(block, n)
+      const glyph = mode === 'sextant' ? sextantGlyph(mask) : mode === 'quadrant' ? QUADRANTS[mask]! : mask === 1 ? 0x2580 : mask === 2 ? 0x2584 : 0x20
+      cells.push({ glyph, fg, bg })
+    }
+  }
+  return { columns, rows, cells }
+}
+
+/** A `Raster`'s packed cells (u32 triplets, base64); every glyph must be in the BMP, so not sextants. */
+export function packCells(m: { columns: number; rows: number; cells: Cell[] }): { cells: string; columns: number; rows: number } {
+  const words = new Uint32Array(m.cells.length * 3)
+  m.cells.forEach((c, i) => { words[i * 3] = c.glyph; words[i * 3 + 1] = c.fg; words[i * 3 + 2] = c.bg })
+  return { cells: new Uint8Array(words.buffer).toBase64(), columns: m.columns, rows: m.rows }
+}
+
+export type Run = { text: string; fg?: string; bg?: string }
+
+/** Rows of text runs, adjacent cells of the same colors joined: how sextants are drawn (`Raster` refuses beyond-BMP glyphs). */
+export function textRows(m: { columns: number; rows: number; cells: Cell[] }): Run[][] {
+  const hex = (c: number) => (c === DEFAULT_COLOR ? undefined : '#' + c.toString(16).padStart(6, '0'))
+  const out: Run[][] = []
+  for (let r = 0; r < m.rows; r++) {
+    const row: Run[] = []
+    for (let c = 0; c < m.columns; c++) {
+      const cell = m.cells[r * m.columns + c]!
+      const fg = cell.glyph === 0x20 ? undefined : hex(cell.fg), bg = hex(cell.bg)
+      const last = row[row.length - 1]
+      if (last && last.fg === fg && last.bg === bg) last.text += String.fromCodePoint(cell.glyph)
+      else row.push({ text: String.fromCodePoint(cell.glyph), ...(fg ? { fg } : {}), ...(bg ? { bg } : {}) })
+    }
+    out.push(row)
+  }
+  return out
+}
+
+/** Distinct (foreground, background) pairs, the unit `Raster`'s palette counts (1024 per frame). */
+export const colorPairs = (cells: readonly Cell[]) => new Set(cells.map(c => `${c.fg}/${c.bg}`)).size
 
 /** The tools found on this machine, by the name `command -v` knows them. */
 export type Tools = ReadonlySet<string>

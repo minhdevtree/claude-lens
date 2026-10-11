@@ -4,9 +4,9 @@ import type { EngineInterface, Register, RenderElement, RenderSurface } from 'cl
 import type { LensDraftImage, LensItem } from '../types'
 import {
   MEDIA_EXT, RENDERERS, TOOL_NAMES, baseName, commandPaths, configOf, fitCells, hash, imageLinks, imageNumbers, kindOf, linkLabel,
-  paintsImages, parseBmp, parsePpm, pixelsPlan, pngSize, rasterCells, rowKey,
+  SAMPLES, mosaicCells, mosaicFor, packCells, paintsImages, parseBmp, parsePpm, pixelsPlan, pngSize, rowKey, textRows,
 } from './lib'
-import type { Config, Kind, Size, Source } from './lib'
+import type { Config, Kind, Mosaic, Run, Size, Source } from './lib'
 
 type $ = EngineInterface
 
@@ -29,13 +29,15 @@ const SETTLE_MS = 1500
 const READS = new Set(['Read'])
 const WRITES = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit'])
 
-type Host = { tools: Set<string>; cache: string; kitty: boolean; cwd: string; root: string; tmp: string }
+type Host = { tools: Set<string>; cache: string; kitty: boolean; csm: boolean; cwd: string; root: string; tmp: string }
+/** A thumbnail as colored blocks: packed `Raster` cells, or rows of colored text runs for sextants (beyond the BMP). */
+type Block = { kind: 'raster'; cells: string; columns: number; rows: number } | { kind: 'text'; rows: Run[][] }
 type Thumb = { png: string; size: Size } | { error: string }
 type Preview = { path: string; label: string; key: string; drawnAs?: string }
 
 let host: Promise<Host> | undefined
 const sizes = new Map<string, Size>()
-const cellCache = new Map<string, { cells: string; columns: number; rows: number }>()
+const cellCache = new Map<string, Block>()
 const bashCalls = new Map<string, { command: string; at: number }>()
 /** The transcript's width as the last draw saw it, so the collector can make cells of the size a row will ask for. */
 let lastColumns = 80
@@ -60,7 +62,8 @@ async function setup($: $): Promise<Host> {
     KITTY_WINDOW_ID: await $.env.get('KITTY_WINDOW_ID'),
     GHOSTTY_RESOURCES_DIR: await $.env.get('GHOSTTY_RESOURCES_DIR'),
   })
-  return { tools: new Set(found.stdout.split('\n').filter(Boolean)), cache: `${tmp}/claude-lens`, kitty, cwd: await $.session.cwd(), root: $.plugin.root, tmp }
+  const csm = (await $.env.get('CSM_SESSION')) !== undefined
+  return { tools: new Set(found.stdout.split('\n').filter(Boolean)), cache: `${tmp}/claude-lens`, kitty, csm, cwd: await $.session.cwd(), root: $.plugin.root, tmp }
 }
 
 function hostOf($: $): Promise<Host> {
@@ -106,21 +109,26 @@ async function thumbnail($: $, path: string, kind: Kind, page: number): Promise<
   return { png: out, size }
 }
 
-/** Colored-block cells for a thumbnail, `columns` x `rows` cells (two pixel rows a cell); settled results kept. */
-async function blockCells($: $, png: string, columns: number, rows: number) {
-  const key = `${png}|${columns}x${rows}`
+/**
+ * Colored-block cells for a thumbnail, `columns` x `rows` cells, each cell `SAMPLES[mode]` pixels fitted to the two
+ * colors and the glyph that draw them best; settled results kept.
+ */
+async function blockCells($: $, png: string, columns: number, rows: number, mode: Mosaic): Promise<Block | undefined> {
+  const key = `${png}|${columns}x${rows}|${mode}`
   const known = cellCache.get(key)
   if (known) return known
   const env = await hostOf($)
-  const base = png.replace(/\.png$/, `-${columns}x${rows * 2}`)
-  const plan = pixelsPlan(png, base, columns, rows * 2, env.tools)
+  const { x, y } = SAMPLES[mode]
+  const base = png.replace(/\.png$/, `-${columns * x}x${rows * y}`)
+  const plan = pixelsPlan(png, base, columns * x, rows * y, env.tools)
   if (plan === undefined || (await run($, plan.steps)) !== undefined) return undefined
   const read = await $.fs.read(`${base}.${plan.format}`, { as: 'bytes' }).catch(() => undefined)
   if (read === undefined) return undefined
   const bytes = Uint8Array.fromBase64(read.base64)
-  const cells = rasterCells(plan.format === 'bmp' ? parseBmp(bytes) : parsePpm(bytes))
-  cellCache.set(key, cells)
-  return cells
+  const cells = mosaicCells(plan.format === 'bmp' ? parseBmp(bytes) : parsePpm(bytes), mode)
+  const block: Block = mode === 'sextant' ? { kind: 'text', rows: textRows(cells) } : { kind: 'raster', ...packCells(cells) }
+  cellCache.set(key, block)
+  return block
 }
 
 /** Writes base64 bytes (a pasted or returned image) to the cache and answers the file's path. */
@@ -179,8 +187,10 @@ async function previews($: $, e: { surface: RenderSurface; viewport?: { columns:
         row.push(<Image key={`${item.key}-${page}`} source={{ file: t.png, format: 'png' }} columns={cells.columns} rows={cells.rows} alt={`[${item.label}${pages > 1 ? ` p${page}` : ''}]`} />)
       } else {
         const { Raster } = els as never as { Raster: any }
-        const r = await blockCells($, t.png, cells.columns, cells.rows)
-        row.push(r ? <Raster key={`${item.key}-${page}`} cells={r.cells} columns={r.columns} rows={r.rows} /> : <Text dimColor>{`${item.label}: no pixel converter found`}</Text>)
+        const b = await blockCells($, t.png, cells.columns, cells.rows, mosaicFor(cfg.detail, env))
+        row.push(b === undefined ? <Text dimColor>{`${item.label}: no pixel converter found`}</Text>
+          : b.kind === 'raster' ? <Raster key={`${item.key}-${page}`} cells={b.cells} columns={b.columns} rows={b.rows} />
+          : <Box flexDirection="column">{b.rows.map(runs => <Text wrap="truncate">{runs.map(run => <Text color={run.fg} backgroundColor={run.bg}>{run.text}</Text>)}</Text>)}</Box>)
       }
     }
     nodes.push(<Box flexDirection="column"><Text dimColor>{item.label}</Text><Box flexDirection="row" columnGap={1}>{row}</Box></Box>)
@@ -293,7 +303,7 @@ async function collect($: $, cfg: Config, e: any, uuid: string) {
       if ('error' in t) break
       if (isBlocks && cfg.where[item.source] === 'inline') {
         const cells = fitCells(t.size, cfg.maxRows, pageWidth(inlineColumns(lastColumns), pages))
-        await blockCells($, t.png, cells.columns, cells.rows)
+        await blockCells($, t.png, cells.columns, cells.rows, mosaicFor(cfg.detail, env))
       }
     }
   }
@@ -355,7 +365,8 @@ async function settle($: $, cfg: Config) {
 
 async function status($: $, cfg: Config): Promise<string> {
   const env = await hostOf($)
-  const painter = cfg.painter === 'auto' ? `auto (${env.kitty ? 'pictures' : 'colored blocks'})` : cfg.painter
+  const blocks = `colored blocks, ${mosaicFor(cfg.detail, env)}${cfg.detail === 'auto' ? ' (auto)' : ''}`
+  const painter = cfg.painter === 'auto' ? `auto (${env.kitty ? 'pictures' : blocks})` : cfg.painter === 'blocks' ? blocks : cfg.painter
   const off = (await read($, muted)) ? ' (off for now: /lens on)' : ''
   return [
     `drawing ${painter}${off}; images ${cfg.kinds.image ? 'on' : 'off'}, svg ${cfg.kinds.svg ? 'on' : 'off'}, pdf ${cfg.kinds.pdf ? `on (${cfg.pdfPages} page${cfg.pdfPages > 1 ? 's' : ''})` : 'off'}`,

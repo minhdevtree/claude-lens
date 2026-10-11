@@ -47,7 +47,7 @@ Why host tools: a hooks module has no WebAssembly, no `eval` or `new Function`, 
 | Painter | Element | Where |
 | --- | --- | --- |
 | kitty | `Image` with a `{ file, format: 'png' }` source | terminal, when it paints kitty graphics |
-| blocks | `Raster`: one cell per pixel column, U+2580 with the top pixel as foreground and the bottom as background | any other terminal |
+| blocks | per cell, 1x2, 2x2 or 2x3 pixels split into two colors: half blocks and quadrants as a `Raster`, sextants as colored `Text` runs | any other terminal |
 | text | `Text`, the file name | `painter: text`, or a row scrolled off screen |
 | svg | `Svg` with the file's markup | desktop, VS Code, mobile (no `Image` or `Raster` there) |
 
@@ -56,7 +56,34 @@ Why host tools: a hooks module has no WebAssembly, no `eval` or `new Function`, 
 cannot ask the engine, which probes the terminal itself; these are the same signals its debug log reports.
 
 The blocks need raw pixels and the module has no zlib, so a second step makes an uncompressed BMP (`sips -s format
-bmp -z h w`) or PPM (ImageMagick), parsed in `lib.ts`.
+bmp -z h w`) or PPM (ImageMagick) of `columns * x` by `rows * y` pixels, parsed in `lib.ts`.
+
+#### Block detail (0.2.0)
+
+Each cell takes `x * y` pixels (`SAMPLES`: half block 1x2, quadrant 2x2, sextant 2x3). `fitCell` tries every split of
+them into two sets (2^(n-1): 2, 8 or 32), gives each set its mean color, keeps the split with the least squared error,
+and the split names the glyph: U+2580 for half blocks, `QUADRANTS` (U+2596-259F and the halves) for quadrants,
+`sextantGlyph` (U+1FB00-1FB3B, Symbols for Legacy Computing, and the four from Block Elements) for sextants. Pixels
+with alpha under 128 count as the terminal's own background. `auto` is sextants when `CSM_SESSION` is set (CSM sets it
+in every session, `main/sessions.ts`), quadrants elsewhere.
+
+Measured before choosing (2026-10-11):
+- `Raster` refuses a sextant: "Raster "r" cell 0 holds code point 129792, beyond the Basic Multilingual Plane" (the
+  test host, 2.1.296). A `Text` with sextants is accepted, so sextants are drawn as colored text runs.
+- CSM's terminal, xterm.js 6.1.0-beta.304 with the WebGL addon 0.20.0-beta.300, draws U+1FB00-1FB3B itself
+  (`CustomGlyphDefinitions.ts`, `sextant(0b...)` for all 60; lens's table matches all 60). Rendered in Chrome with
+  that addon, its texture atlas holds the sextants as solid 2x3 blocks. If WebGL is lost, CSM falls back to the DOM
+  renderer, which uses fonts: there sextants are empty boxes on a Mac without Noto Sans Symbols 2, quadrants are fine.
+- macOS: CoreText falls back to `LastResort` for U+1FB00 from Menlo, SF Mono and Monaco (no font has them); Menlo has
+  U+2596-259F. So Terminal.app shows boxes for sextants, and quadrants are the default outside CSM.
+- tmux 3.6 counts sextants one column wide and passes them through; the outer terminal decides.
+- Colors: the two-color fit merges near colors, so finer cells use fewer distinct pairs, not more. At 36x10 cells:
+  chart 144 / 118 / 104 pairs (half / quadrant / sextant), the UI shot 177 / 143 / 123, a PDF page 174 / 146 / 129,
+  the logo 57 / 44 / 41; all four on screen 552 / 451 / 397, under `Raster`'s 1024. In a tmux capture of three
+  thumbnails, the `Raster` modes came out with 82-84 distinct foreground colors, the sextant text with 226: text
+  keeps the fitted colors exactly. Fitting takes 0.1-2.5 ms a thumbnail (8 ms the first, before the JIT).
+- Not run: iTerm2, Ghostty, kitty, WezTerm (not installed). Ghostty, kitty and WezTerm draw these glyphs themselves
+  by their docs; set `sextant` there by hand.
 
 ### Placements
 
@@ -104,7 +131,7 @@ session switch kept in `$.store`.
 ## Limits
 
 - 255 kitty image ids at once (the engine draws the alt past that).
-- `Raster` paints 1024 color pairs per frame; the rest take the nearest.
+- `Raster` paints 1024 color pairs per frame; the rest take the nearest. `Raster` cells must be BMP glyphs.
 - `$.fs` reads and writes at most 4 MiB, text writes only; inputs over 64 MB are skipped.
 - Windows: not supported (`/bin/sh`).
 

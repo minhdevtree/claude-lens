@@ -34,8 +34,14 @@ Then run `/reload-plugins` in a session, or start a new one.
 | Where Claude Code runs | What lens draws |
 | --- | --- |
 | kitty, Ghostty | The picture itself (kitty graphics protocol) |
-| tmux, iTerm2, WezTerm, Terminal.app, the VS Code terminal, apps built on xterm.js | Colored blocks: each cell shows two pixels, so a thumbnail reads like a small picture |
+| CSM (Claude Session Manager) | Colored blocks in the finest detail: each cell is split 2x3 (sextants), its two best colors |
+| tmux, iTerm2, WezTerm, Terminal.app, the VS Code terminal, other apps built on xterm.js | Colored blocks, each cell split 2x2 (quadrants) |
 | Claude desktop app, VS Code extension, mobile | SVG files only, drawn by the app; other previews are left out |
+
+![the same chart, PDF page and logo at the same size: half blocks, quadrants, sextants](docs/detail-modes.png)
+
+*The same three thumbnails at the same size in the three block details. Drawn from tmux captures, with each block
+glyph painted as the terminal's own block shapes, as CSM's terminal does.*
 
 Inside tmux, Claude Code uses 256 colors unless you set `CLAUDE_CODE_TMUX_TRUECOLOR=1` (in your shell or in the
 `env` block of `~/.claude/settings.json`). The blocks look much better with it.
@@ -87,6 +93,7 @@ Every setting is a row in `/config` (type `lens` to filter):
 | Pasted images | `above` (over the prompt while you write, then under your message), `inline`, `pane` (gallery only), `off` | `above` |
 | Files Claude reads, Files Claude writes, Image links in replies, Images tools return | `inline`, `pane` (gallery only), `off` | `inline` |
 | Drawing | `auto` (pictures in kitty and Ghostty, blocks elsewhere), `kitty`, `blocks`, `text` (file names only) | `auto` |
+| Block detail | `auto` (sextants in CSM, quadrants elsewhere), `sextant` (2x3 per cell), `quadrant` (2x2), `halfblock` (1x2, what 0.1 drew) | `auto` |
 | Thumbnail rows | 2 to 40 | 10 |
 | PDF pages | 1 to 8 | 1 |
 
@@ -125,6 +132,10 @@ install the packages above. Check that `/plugin` lists `lens` as active, or run 
 **I see the file name in brackets, not a picture.** Your terminal does not paint kitty graphics but Drawing is set to
 `kitty`. Set it to `auto` or `blocks`.
 
+**The blocks show as empty boxes or question marks.** Your terminal has no glyphs for sextants (U+1FB00 and on):
+no font macOS ships has them, so Terminal.app and iTerm2 cannot draw them. Set Block detail to `quadrant` (or
+`halfblock`). `auto` only picks sextants inside CSM, whose terminal draws them itself.
+
 **The blocks look washed out.** In tmux, set `CLAUDE_CODE_TMUX_TRUECOLOR=1`. Elsewhere, check that your terminal
 has truecolor (`COLORTERM=truecolor`).
 
@@ -141,15 +152,16 @@ preview as soon as Claude names the file, so this is rare; the `/lens` gallery a
 
 - At most 255 pictures can be on screen at once in kitty and Ghostty (the terminal's image ids). Past that, Claude
   Code draws the file name instead.
-- The colored blocks share a palette of 1024 color pairs per frame, so many thumbnails at once lose some color.
+- Half-block and quadrant thumbnails share a palette of 1024 color pairs per frame, so many at once lose some color.
+  Sextants are drawn as colored text and keep theirs.
 - Thumbnails are not shown for rows scrolled off screen in fullscreen mode.
 
 ## How it works
 
 See [docs/DESIGN.md](docs/DESIGN.md). In short: lens is a Claude Code [mod](https://code.claude.com/docs/en/plugins/mods/overview).
 It notices images as Claude Code stores each row of the conversation, turns each file into a PNG thumbnail with the
-tools your OS has, and draws it under the row with Claude Code's `Image` element (kitty, Ghostty) or `Raster`
-element (colored blocks).
+tools your OS has, and draws it under the row with Claude Code's `Image` element (kitty, Ghostty), or as colored
+blocks: each cell's pixels are split into the two colors that fit them best and the block glyph of that split.
 
 ## Development
 

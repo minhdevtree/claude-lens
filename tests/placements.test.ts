@@ -60,12 +60,35 @@ test('a Read in a tool group: a picture under the group row in Ghostty', async (
   expect(await ui.find({ type: 'Text', text: 'engine row' })).toBeDefined()
 })
 
-test('the same Read in tmux: colored blocks, not a picture', async ($, on) => {
-  world(on, { TMUX: '/tmp/tmux-501/default,1,0', TERM_PROGRAM: 'ghostty' })
+const READ_A = { isActive: false, isExpanded: false, calls: [{ tool_use_id: 't1', tool: 'Read', input: { file_path: '/work/a.png' }, ...ROW }] }
+
+test('the same Read in tmux: quadrant blocks, not a picture', async ($, on) => {
+  const { ran } = world(on, { TMUX: '/tmp/tmux-501/default,1,0', TERM_PROGRAM: 'ghostty' })
   await toolUse($, 't1', 'Read', { file_path: '/work/a.png' })
   const ui = await $.ui.mount(mountOf('terminal', 'ToolGroup', { isActive: false, isExpanded: false, calls: [{ tool_use_id: 't1', tool: 'Read', input: { file_path: '/work/a.png' }, ...ROW }] }))
   expect(await ui.find({ type: 'Image' })).toBeUndefined()
+  // bmp2x2 stands for the pixels: one quadrant cell. The pixels asked for are 2x2 per cell of the 40x10 box.
+  expect((await ui.find({ type: 'Raster' }))?.props).toMatchObject({ columns: 1, rows: 1 })
+  expect(ran.some(argv => argv[0] === 'sips' && argv.includes('bmp') && argv.includes('20') && argv.includes('80'))).toBe(true)
+})
+
+test('in CSM the blocks are sextants, drawn as colored text (Raster takes BMP glyphs only)', async ($, on) => {
+  const { ran } = world(on, { TERM_PROGRAM: 'xterm', CSM_SESSION: 's1' })
+  await toolUse($, 't1', 'Read', { file_path: '/work/a.png' })
+  const ui = await $.ui.mount(mountOf('terminal', 'ToolGroup', READ_A))
+  expect(await ui.find({ type: 'Raster' })).toBeUndefined()
+  // 40x10 cells, 2x3 pixels each.
+  expect(ran.some(argv => argv[0] === 'sips' && argv.includes('30') && argv.includes('80'))).toBe(true)
+  const texts = await ui.findAll({ type: 'Text' })
+  expect(texts.some(t => /[\u{1FB00}-\u{1FB3B}\u2580-\u259F]/u.test(String((t as any).text ?? '')))).toBe(true)
+})
+
+test('config detail "halfblock" in CSM: a Raster of half blocks', { options: { detail: 'halfblock' } }, async ($, on) => {
+  const { ran } = world(on, { TERM_PROGRAM: 'xterm', CSM_SESSION: 's1' })
+  await toolUse($, 't1', 'Read', { file_path: '/work/a.png' })
+  const ui = await $.ui.mount(mountOf('terminal', 'ToolGroup', READ_A))
   expect((await ui.find({ type: 'Raster' }))?.props).toMatchObject({ columns: 2, rows: 1 })
+  expect(ran.some(argv => argv[0] === 'sips' && argv.includes('20') && argv.includes('40'))).toBe(true)
 })
 
 test('a Read still running, or one that failed, gets no preview', async ($, on) => {
@@ -77,7 +100,6 @@ test('a Read still running, or one that failed, gets no preview', async ($, on) 
   expect(await failed.find({ type: 'Image' })).toBeUndefined()
 })
 
-const READ_A = { isActive: false, isExpanded: false, calls: [{ tool_use_id: 't1', tool: 'Read', input: { file_path: '/work/a.png' }, ...ROW }] }
 
 test('config painter "text": the file name, no picture', { options: { painter: 'text' } }, async ($, on) => {
   world(on)
