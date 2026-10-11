@@ -77,11 +77,13 @@ export function imageLinks(text: string, cwd: string): string[] {
   return [...seen]
 }
 
-/** Paths in a shell command that name a previewable file (a heuristic: the caller checks they were just written). */
+/** Paths in a shell command that name a previewable file, quoted or bare (a heuristic: the caller checks they were just written). */
 export function commandPaths(command: string, cwd: string): string[] {
+  const ext = '\\.(?:png|jpe?g|gif|webp|bmp|tiff?|heic|svg|pdf)'
+  const re = new RegExp(`"([^"]+${ext})"|'([^']+${ext})'|(?:^|[\\s=(])([^\\s'"\`;|&<>()=]+${ext})(?=$|[\\s;|&)])`, 'gi')
   const seen = new Set<string>()
-  for (const m of command.matchAll(/(?:^|[\s='"(])([^\s'"`;|&<>()=]+\.(?:png|jpe?g|gif|webp|bmp|tiff?|heic|svg|pdf))(?=$|[\s'"`;|&)])/gi)) {
-    const p = resolvePath(m[1]!, cwd)
+  for (const m of command.matchAll(re)) {
+    const p = resolvePath(m[1] ?? m[2] ?? m[3]!, cwd)
     if (p !== undefined) seen.add(p)
   }
   return [...seen]

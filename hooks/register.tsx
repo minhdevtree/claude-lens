@@ -349,8 +349,8 @@ export const register: Register = (on, options) => {
     void hostOf($)
     const stored = await $.store.get('muted')
     if (stored === true) await update($, muted, () => true)
-    await $.command.register({ name: 'lens', description: 'Image, SVG and PDF previews: the gallery, on/off, status', argumentHint: '[gallery|on|off|status|clear]' })
     if (cfg.where.pasted === 'above') startPolling($)
+    await $.command.register({ name: 'lens', description: 'Image, SVG and PDF previews: the gallery, on/off, status', argumentHint: '[gallery|on|off|status|clear]' })
     return next(e)
   })
 
