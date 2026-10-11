@@ -1,0 +1,14 @@
+{
+  "name": "claude-lens",
+  "owner": { "name": "minhdevtree", "url": "https://github.com/minhdevtree" },
+  "plugins": [
+    {
+      "name": "lens",
+      "source": "./",
+      "description": "See images, SVGs and PDF pages in Claude Code where they appear",
+      "category": "productivity",
+      "tags": ["images", "pdf", "svg", "preview", "mod", "terminal"]
+    }
+  ],
+  "metadata": { "description": "See images, SVGs and PDF pages in Claude Code" }
+}

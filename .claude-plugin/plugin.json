@@ -1,0 +1,24 @@
+{
+  "name": "lens",
+  "description": "See images, SVGs and PDF pages in Claude Code where they appear: pasted, read, written or linked",
+  "version": "0.1.0",
+  "author": { "name": "minhdevtree", "url": "https://github.com/minhdevtree" },
+  "homepage": "https://github.com/minhdevtree/claude-lens",
+  "repository": "https://github.com/minhdevtree/claude-lens",
+  "license": "MIT",
+  "keywords": ["images", "pdf", "svg", "preview", "thumbnails", "mod", "terminal", "kitty", "claude-code"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "images": { "type": "boolean", "title": "Images", "description": "Preview PNG, JPEG, GIF, WebP, BMP, TIFF and HEIC files", "default": true },
+    "svg": { "type": "boolean", "title": "SVG", "description": "Preview SVG files", "default": true },
+    "pdf": { "type": "boolean", "title": "PDF", "description": "Preview PDF pages", "default": true },
+    "pasted": { "type": "string", "title": "Pasted images", "description": "above: thumbnails over the prompt while you draft, then under your message. inline: under your message only. pane: only in the /lens gallery", "options": ["above", "inline", "pane", "off"], "default": "above" },
+    "read": { "type": "string", "title": "Files Claude reads", "description": "Where previews of files Claude reads show", "options": ["inline", "pane", "off"], "default": "inline" },
+    "written": { "type": "string", "title": "Files Claude writes", "description": "Where previews of image, SVG and PDF files Claude writes (Write, Edit, Bash) show", "options": ["inline", "pane", "off"], "default": "inline" },
+    "links": { "type": "string", "title": "Image links in replies", "description": "Where previews of local image paths in Claude's replies show", "options": ["inline", "pane", "off"], "default": "inline" },
+    "toolImages": { "type": "string", "title": "Images tools return", "description": "Where screenshots and other images a tool returns (MCP, browser tools) show", "options": ["inline", "pane", "off"], "default": "inline" },
+    "painter": { "type": "string", "title": "Drawing", "description": "auto: real pictures in kitty and Ghostty, colored blocks elsewhere. kitty: pictures only. blocks: colored blocks everywhere. text: file names only", "options": ["auto", "kitty", "blocks", "text"], "default": "auto" },
+    "maxRows": { "type": "number", "title": "Thumbnail rows", "description": "Tallest a thumbnail may be, in terminal rows (2 to 40)", "default": 10 },
+    "pdfPages": { "type": "number", "title": "PDF pages", "description": "How many pages of a PDF to show (1 to 8)", "default": 1 }
+  }
+}
