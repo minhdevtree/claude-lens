@@ -3,7 +3,7 @@ import type { EngineInterface, Register, RenderElement, RenderSurface } from 'cl
 
 import type { LensDraftImage, LensItem } from '../types'
 import {
-  MEDIA_EXT, RENDERERS, TOOL_NAMES, baseName, commandPaths, configOf, fitCells, hash, imageLinks, imageNumbers, kindOf,
+  MEDIA_EXT, RENDERERS, TOOL_NAMES, baseName, commandPaths, configOf, fitCells, hash, imageLinks, imageNumbers, kindOf, linkLabel,
   paintsImages, parseBmp, parsePpm, pixelsPlan, pngSize, rasterCells, rowKey,
 } from './lib'
 import type { Config, Kind, Size, Source } from './lib'
@@ -13,6 +13,8 @@ type $ = EngineInterface
 const gallery = atom({ plugin: 'lens', key: 'gallery' } as const, [] as LensItem[])
 const draft = atom({ plugin: 'lens', key: 'draft' } as const, [] as LensDraftImage[])
 const muted = atom({ plugin: 'lens', key: 'muted' } as const, false)
+/** Ids of this turn's previews no row drew: another mod answered their row without passing it on. */
+const unplaced = atom({ plugin: 'lens', key: 'unplaced' } as const, [] as string[])
 
 /** Longest side of a thumbnail PNG, in pixels: enough for 40 rows of a high-density terminal. */
 const THUMB_PX = 800
@@ -22,12 +24,14 @@ const MAX_INPUT_BYTES = 64 * 1024 * 1024
 const GALLERY_KEEP = 300
 const GALLERY_SHOWN = 12
 const POLL_MS = 250
+/** How long after a turn ends its rows have to draw their previews before the band above the prompt takes the rest. */
+const SETTLE_MS = 1500
 const READS = new Set(['Read'])
 const WRITES = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit'])
 
 type Host = { tools: Set<string>; cache: string; kitty: boolean; cwd: string; root: string; tmp: string }
 type Thumb = { png: string; size: Size } | { error: string }
-type Preview = { path: string; label: string; key: string }
+type Preview = { path: string; label: string; key: string; drawnAs?: string }
 
 let host: Promise<Host> | undefined
 const sizes = new Map<string, Size>()
@@ -35,6 +39,10 @@ const cellCache = new Map<string, { cells: string; columns: number; rows: number
 const bashCalls = new Map<string, { command: string; at: number }>()
 /** The transcript's width as the last draw saw it, so the collector can make cells of the size a row will ask for. */
 let lastColumns = 80
+/** What the inline hooks drew (`drawnKey`), and the previews this turn found, so the turn's end can tell what no row drew. */
+const drawn = new Set<string>()
+let turnIds: string[] = []
+const drawnKey = (path: string, owner = '') => `${path}|${owner}`
 let isPolling = false
 let isChecking = false
 let pasteDir: { sessionId: string; dir: string } | undefined
@@ -190,6 +198,7 @@ async function under($: $, e: any, next: (e: any) => Promise<RenderElement>, cfg
   const { Box } = $.ui.resolve(e) as never as { Box: any }
   lastColumns = e.viewport?.columns ?? lastColumns
   const nodes = await previews($, e, cfg, items, inlineColumns(lastColumns), cfg.maxRows)
+  for (const item of items) if (item.drawnAs !== undefined) drawn.add(item.drawnAs)
   if (nodes.length === 0) return below
   return <Box flexDirection="column">{below}<Box flexDirection="column" paddingLeft={5}>{nodes}</Box></Box>
 }
@@ -197,7 +206,7 @@ async function under($: $, e: any, next: (e: any) => Promise<RenderElement>, cfg
 async function itemsFor($: $, cfg: Config, test: (item: LensItem) => boolean): Promise<Preview[]> {
   const list = await read($, gallery)
   return list.filter(item => cfg.where[item.source] === 'inline' || (item.source === 'pasted' && cfg.where.pasted === 'above'))
-    .filter(test).map(item => ({ path: item.path, label: item.label, key: hash(item.id) }))
+    .filter(test).map(item => ({ path: item.path, label: item.label, key: hash(item.id), drawnAs: drawnKey(item.path, item.toolUseId ?? item.row) }))
 }
 
 async function addItems($: $, items: readonly LensItem[]) {
@@ -238,8 +247,8 @@ async function collect($: $, cfg: Config, e: any, uuid: string) {
         if (b.name === 'Bash' && typeof b.input?.command === 'string') bashCalls.set(b.id, { command: b.input.command, at })
       }
       if (b.type === 'text' && typeof b.text === 'string') {
-        for (const path of imageLinks(b.text, env.cwd)) {
-          if (wants('links', path)) found.push({ id: `${uuid}:${path}`, source: 'links', path, label: baseName(path), at })
+        for (const link of imageLinks(b.text, env.cwd)) {
+          if (wants('links', link.path)) found.push({ id: `${uuid}:${link.path}`, source: 'links', path: link.path, label: linkLabel(link), at })
         }
       }
     }
@@ -272,6 +281,7 @@ async function collect($: $, cfg: Config, e: any, uuid: string) {
     }
   }
   await addItems($, found)
+  turnIds.push(...found.map(item => item.id))
   // Made here, where no draw can supersede the converters, so the row's first draw needs no process: on the
   // main screen a finished row is printed once, and a draw whose converter was killed would print it bare.
   const isBlocks = cfg.painter === 'blocks' || (cfg.painter === 'auto' && !env.kitty)
@@ -330,6 +340,19 @@ function startPolling($: $) {
   $.clock.every(POLL_MS, () => void checkDraft($).catch(() => {}))
 }
 
+/**
+ * At a turn's end: this turn's inline previews that no row drew go to the band above the prompt. A mod outside lens in
+ * the chain (claude-skins draws tool rows and prompts as its own cards) can answer a row without passing it on, and
+ * then lens's hook for that row never runs; the band is a site such mods hand on.
+ */
+async function settle($: $, cfg: Config) {
+  const ids = new Set(turnIds)
+  const list = await read($, gallery)
+  const missing = list.filter(item => ids.has(item.id) && !drawn.has(drawnKey(item.path, item.toolUseId ?? item.row)))
+    .filter(item => cfg.where[item.source] === 'inline' || (item.source === 'pasted' && cfg.where.pasted === 'above'))
+  await update($, unplaced, () => missing.map(item => item.id))
+}
+
 async function status($: $, cfg: Config): Promise<string> {
   const env = await hostOf($)
   const painter = cfg.painter === 'auto' ? `auto (${env.kitty ? 'pictures' : 'colored blocks'})` : cfg.painter
@@ -371,6 +394,18 @@ export const register: Register = (on, options) => {
     return { text: opened.isPlaced ? 'gallery opened' : 'gallery: widen the terminal to see it' }
   })
 
+  on('prompt.submit', async ($, e, next) => {
+    turnIds = []
+    if ((await read($, unplaced)).length > 0) await update($, unplaced, () => [])
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  on('turn.complete', async ($, e, next) => {
+    const done = await next(e)
+    $.clock.after(SETTLE_MS, () => void settle($, cfg).catch(() => {}))
+    return done
+  })
+
   on('session.append', async ($, e, next) => {
     const stored = await next(e)
     if (stored.uuid !== undefined) await collect($, cfg, e, stored.uuid).catch(() => {})
@@ -403,22 +438,32 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
     if (cfg.where.links !== 'inline' || (await read($, muted))) return next(e)
     const env = await hostOf($)
-    const items = imageLinks(e.props.text, env.cwd).map(path => ({ path, label: baseName(path), key: hash(path) }))
+    const items = imageLinks(e.props.text, env.cwd).map(link => ({ path: link.path, label: linkLabel(link), key: hash(link.path), drawnAs: drawnKey(link.path) }))
     return under($, e, next, cfg, items)
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (cfg.where.pasted !== 'above' || e.props.hasSurvey || (await read($, muted))) return next(e)
-    startPolling($)
-    const list = (await read($, draft)).filter(d => d.path !== null)
-    if (list.length === 0) return next(e)
+    if (e.props.hasSurvey || (await read($, muted))) return next(e)
+    if (cfg.where.pasted === 'above') startPolling($)
+    const drafts = cfg.where.pasted === 'above' ? (await read($, draft)).filter(d => d.path !== null) : []
+    const ids = new Set(await read($, unplaced))
+    const missed = ids.size === 0 ? [] : (await read($, gallery)).filter(item => ids.has(item.id))
+    if (drafts.length === 0 && missed.length === 0) return next(e)
     const below = await next(e)
-    const { Box } = $.ui.resolve(e) as never as { Box: any }
-    const rows = Math.max(1, Math.min(cfg.maxRows, 6, e.props.maxRows - 3))
-    const width = Math.max(4, Math.floor(e.props.bodyColumns / list.length) - 2)
-    const items = list.map(d => ({ path: d.path!, label: `[Image #${d.n}]`, key: `draft-${d.n}` }))
-    const nodes = await previews($, e, cfg, items, width, rows)
-    return <Box flexDirection="column"><Box flexDirection="row" columnGap={2}>{nodes}</Box>{below}</Box>
+    const { Box, Text } = $.ui.resolve(e) as never as { Box: any; Text: any }
+    const rows = Math.max(1, Math.min(cfg.maxRows, 6, e.props.maxRows - 4))
+    const tiles = async (items: readonly Preview[]) =>
+      previews($, e, cfg, items, Math.max(4, Math.floor(e.props.bodyColumns / items.length) - 2), rows)
+    const draftNodes = drafts.length === 0 ? [] : await tiles(drafts.map(d => ({ path: d.path!, label: `[Image #${d.n}]`, key: `draft-${d.n}` })))
+    const missedNodes = missed.length === 0 ? [] : await tiles(missed.map(item => ({ path: item.path, label: item.label, key: `missed-${hash(item.id)}` })))
+    return (
+      <Box flexDirection="column">
+        {missedNodes.length > 0 ? <Text dimColor>lens: previews from this turn (another mod drew their rows)</Text> : null}
+        {missedNodes.length > 0 ? <Box flexDirection="row" columnGap={2}>{missedNodes}</Box> : null}
+        {draftNodes.length > 0 ? <Box flexDirection="row" columnGap={2}>{draftNodes}</Box> : null}
+        {below}
+      </Box>
+    )
   })
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {

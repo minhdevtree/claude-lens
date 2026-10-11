@@ -20,6 +20,6 @@ export type LensDraftImage = { n: number; path: string | null }
 
 declare module 'claude-code' {
   interface PluginState {
-    lens: { gallery: LensItem[]; draft: LensDraftImage[]; muted: boolean }
+    lens: { gallery: LensItem[]; draft: LensDraftImage[]; muted: boolean; unplaced: string[] }
   }
 }

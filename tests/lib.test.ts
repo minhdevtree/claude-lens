@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import {
-  RENDERERS, commandPaths, configOf, fitCells, hash, imageLinks, imageNumbers, kindOf, paintsImages, parseBmp, parsePpm,
+  RENDERERS, commandPaths, configOf, fitCells, hash, imageLinks, imageNumbers, kindOf, linkLabel, paintsImages, parseBmp, parsePpm,
   pixelsPlan, pngSize, rasterCells, resolvePath, rowKey,
 } from '../hooks/lib'
 
@@ -36,7 +36,9 @@ test('paths resolve under the working directory; web URLs are not files', () => 
 
 test('markdown image links: local previewable files only, deduplicated', () => {
   const text = 'See ![a](shots/a.png "title") and ![b](/abs/b.svg), ![web](https://x.dev/c.png), [not an image](d.png), ![a again](shots/a.png) ![t](notes.txt)'
-  expect(imageLinks(text, '/w')).toEqual(['/w/shots/a.png', '/abs/b.svg'])
+  expect(imageLinks(text, '/w')).toEqual([{ path: '/w/shots/a.png', alt: 'a' }, { path: '/abs/b.svg', alt: 'b' }])
+  expect(linkLabel({ path: '/w/out/chart.png', alt: 'revenue by month' })).toBe('revenue by month (chart.png)')
+  expect(linkLabel({ path: '/w/out/chart.png', alt: '' })).toBe('chart.png')
 })
 
 test('command paths: previewable files a shell command names', () => {

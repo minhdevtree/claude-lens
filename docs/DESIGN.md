@@ -68,6 +68,7 @@ bmp -z h w`) or PPM (ImageMagick), parsed in `lib.ts`.
 | inline, links | `AssistantMessage`, from the reply's own text |
 | above the prompt | `AbovePrompt`, from `[Image #n]` tags in the draft and Claude Code's paste cache (polled every 250 ms, after claude-image-view) |
 | gallery | `Pane` `lens`, opened by `/lens`: the newest 12 |
+| fallback | `AbovePrompt`: this turn's previews no row drew, from the turn's end until the next prompt |
 
 Each preview is drawn under `await next(e)`, so the engine's own row stays.
 
@@ -85,6 +86,16 @@ session switch kept in `$.store`.
   cells as soon as Claude names the file, draws never share in-flight work, only settled results are cached, and each
   conversion writes a temporary file and moves it into place.
 - **`{ file }` sources, not bytes.** The terminal reads the file itself: no 2 MiB cap, no pixels through `$`.
+- **A fallback for rows another mod answers.** Mod hooks nest in `enabledPlugins` order, first outermost. claude-skins
+  answers `ToolGroup`, a closed `ToolUse` and `UserMessage` with its own card and no `next(e)`, so a lens listed after
+  it never runs on those rows (0.1.1 debug run: lens's `ToolGroup` hook ran 0 times with skins first, 6 times with lens
+  first). lens cannot change the order, so it records what each inline hook drew, and 1.5 s after `turn.complete` puts
+  the turn's undrawn previews in the band above the prompt, which skins hands on. With lens first, or without such a
+  mod, nothing goes to the band.
+- **Reply links are labelled, not moved.** A preview sits under the whole reply: placing it after the paragraph that
+  holds the link would mean lens redrawing the reply itself, replacing Claude Code's drawing (and any other mod's).
+  Instead each preview is labelled with the link's text and file, `revenue by month (chart.png)`, which is how Claude
+  Code draws the link in the reply.
 - **Skip failed rows.** A Read that errored (a 231-page PDF without `pages`) gets no preview.
 - **Remote surfaces draw SVG only.** Desktop, VS Code and mobile have no `Image` element; a PNG wrapped in an SVG data
   URI may work there but was not tested.

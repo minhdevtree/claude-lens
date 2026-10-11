@@ -67,15 +67,19 @@ export function resolvePath(path: string, cwd: string): string | undefined {
   return '/' + out.join('/')
 }
 
-/** Local paths of the markdown images (`![alt](path)`) in a reply, resolved, deduplicated. */
-export function imageLinks(text: string, cwd: string): string[] {
-  const seen = new Set<string>()
-  for (const m of text.matchAll(/!\[[^\]]*\]\((<[^>]+>|[^)\s]+)(?:\s+"[^"]*")?\)/g)) {
-    const p = resolvePath(m[1]!, cwd)
-    if (p !== undefined && kindOf(p) !== undefined) seen.add(p)
+/** The markdown images (`![alt](path)`) in a reply with a local, previewable path: resolved, deduplicated, in order. */
+export function imageLinks(text: string, cwd: string): { path: string; alt: string }[] {
+  const seen = new Map<string, string>()
+  for (const m of text.matchAll(/!\[([^\]]*)\]\((<[^>]+>|[^)\s]+)(?:\s+"[^"]*")?\)/g)) {
+    const p = resolvePath(m[2]!, cwd)
+    if (p !== undefined && kindOf(p) !== undefined && !seen.has(p)) seen.set(p, m[1]!.trim())
   }
-  return [...seen]
+  return [...seen].map(([path, alt]) => ({ path, alt }))
 }
+
+/** What a link's preview is labelled with: the link's own text and the file, as Claude Code draws the link (`alt (file)`). */
+export const linkLabel = (link: { path: string; alt: string }) =>
+  link.alt === '' ? base(link.path) : `${link.alt} (${base(link.path)})`
 
 /** Paths in a shell command that name a previewable file, quoted or bare (a heuristic: the caller checks they were just written). */
 export function commandPaths(command: string, cwd: string): string[] {

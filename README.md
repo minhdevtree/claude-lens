@@ -47,12 +47,33 @@ Inside tmux, Claude Code uses 256 colors unless you set `CLAUDE_CODE_TMUX_TRUECO
 | Pasted images | `[Image #1]` in your prompt | Above the prompt while you write, then under your message |
 | Files Claude reads | Read of a PNG, SVG or PDF | Under the "Read 1 file" row |
 | Files Claude writes | Write or Edit of an SVG, a Bash command that makes `out.png` | Under the tool's result |
-| Image links in replies | `![chart](out/chart.png)` | Under the reply |
+| Image links in replies | `![revenue by month](out/chart.png)` | Under the reply, labelled the way Claude Code draws the link: `revenue by month (chart.png)` |
 | Images tools return | An MCP or browser tool's screenshot | Under the tool's result |
 
 File types: PNG, JPEG, GIF, WebP, BMP, TIFF, HEIC, SVG and PDF (the first pages). Web links are never fetched.
 
 `/lens` opens a gallery of everything lens has shown this session.
+
+## With other mods (claude-skins and similar)
+
+Mods run as a chain, in the order your `~/.claude/settings.json` lists them under `enabledPlugins`, first on the
+outside. A mod that redraws a row as its own card without passing the row on, as
+[claude-skins](https://github.com/hellosverre/claude-skins) does for tool groups and prompts, keeps every mod listed
+after it from drawing on that row.
+
+lens handles this on its own: at the end of each turn, any preview that its row did not get shows in the band above
+the prompt, under the line `lens: previews from this turn (another mod drew their rows)`, until you send the next
+prompt. The `/lens` gallery always has everything.
+
+To get those previews inline again, put `lens@claude-lens` before the other mod in `enabledPlugins` and start a new
+session:
+
+```json
+"enabledPlugins": {
+  "lens@claude-lens": true,
+  "skins@hellosverre-mods": true
+}
+```
 
 ## Settings
 
@@ -109,6 +130,9 @@ has truecolor (`COLORTERM=truecolor`).
 
 **A preview is missing for a big PDF.** Claude Code refuses to Read a long PDF without a page range, and lens skips
 reads that failed. Files over 64 MB are not converted.
+
+**Previews show above the prompt, not under the rows.** Another mod draws those rows without passing them on. See
+[With other mods](#with-other-mods-claude-skins-and-similar).
 
 **A row I scrolled past has no picture.** On the main screen, finished rows are printed once. lens prepares each
 preview as soon as Claude names the file, so this is rare; the `/lens` gallery always has it.

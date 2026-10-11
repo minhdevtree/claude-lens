@@ -163,14 +163,17 @@ test('a pasted image shows under the prompt row it was sent with', async ($, on)
 test('a local image link in a reply shows under it; a web link does not', async ($, on) => {
   world(on)
   const ui = await $.ui.mount(mountOf('terminal', 'AssistantMessage', { text: 'Here: ![chart](out/chart.png) and ![w](https://x.dev/w.png)', isFirstOfReply: true }))
-  const files = (await ui.findAll({ type: 'Image' })).map(i => (i.props as any).source.file)
-  expect(files).toEqual([thumbOf('/work/out/chart.png')])
+  const images = await ui.findAll({ type: 'Image' })
+  expect(images.map(i => (i.props as any).source.file)).toEqual([thumbOf('/work/out/chart.png')])
+  // Labelled with the link's own text, as Claude Code draws the link in the reply.
+  expect((images[0]?.props as any)?.alt).toBe('[chart (chart.png)]')
+  expect(await ui.find({ type: 'Text', text: 'chart (chart.png)' })).toBeDefined()
 })
 
 test('desktop has no Image: an SVG link is drawn with Svg, a PNG link leaves the row alone', async ($, on) => {
   world(on)
   const svg = await $.ui.mount(mountOf('desktop', 'AssistantMessage', { text: '![logo](logo.svg)', isFirstOfReply: true }))
-  expect((await svg.find({ type: 'Svg' }))?.props).toMatchObject({ source: SVG, alt: 'logo.svg' })
+  expect((await svg.find({ type: 'Svg' }))?.props).toMatchObject({ source: SVG, alt: 'logo (logo.svg)' })
   const png = await $.ui.mount(mountOf('desktop', 'AssistantMessage', { text: '![chart](chart.png)', isFirstOfReply: true }, 'row2'))
   expect(await png.find({ type: 'Svg' })).toBeUndefined()
   expect(await png.find({ type: 'Text', text: 'engine row' })).toBeDefined()
@@ -195,4 +198,47 @@ test('the band above the prompt shows the draft\'s pasted images from the paste 
   await clock.advance(300)
   const ui = await $.ui.mount(mountOf('terminal', 'AbovePrompt', { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 100, scroll: { offset: 0, bodyRows: 20 }, view: {} }, 'above-prompt'))
   expect((await ui.find({ type: 'Image' }))?.props).toMatchObject({ source: { file: thumbOf('/tmp/claude-501/-work/sess-1/images/1.png') }, alt: '[[Image #1]]' })
+})
+
+const BAND = { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 100, scroll: { offset: 0, bodyRows: 20 }, view: {} }
+
+/** A turn: the prompt, then rows appended by `body`, then its end and the settle delay. */
+async function turn($: any, on: any, clock: any, body: () => Promise<unknown>) {
+  on('prompt.submit', ($$: any, e: any) => ({ text: e.text }))
+  on('turn.complete', () => ({ text: '' }))
+  await $.prompt.submit({ text: 'go', wait: false, origin: { kind: 'composer' } })
+  await body()
+  await $.turn.complete({ reason: 'answer', answer: '', durationMs: 1, isAborted: false, turnId: 't' } as any)
+  await clock.advance(2000)
+}
+
+test('a Read whose row another mod drew without passing it on shows above the prompt', { options: { pasted: 'inline' } }, async ($, on) => {
+  const { clock } = world(on)
+  await turn($, on, clock, () => toolUse($, 't1', 'Read', { file_path: '/work/a.png' }))
+  const ui = await $.ui.mount(mountOf('terminal', 'AbovePrompt', BAND, 'above-prompt'))
+  expect((await ui.find({ type: 'Image' }))?.props).toMatchObject({ source: { file: thumbOf('/work/a.png') }, alt: '[a.png]' })
+  expect(await ui.find({ type: 'Text', text: 'lens: previews from this turn (another mod drew their rows)' })).toBeDefined()
+})
+
+test('a pasted image whose prompt row another mod drew shows above the prompt', { options: { pasted: 'inline' } }, async ($, on) => {
+  const { clock } = world(on)
+  await turn($, on, clock, () => $.session.append({ door: 'prompt', origin: { kind: 'composer' }, uuid: '5ba350cf-854d-4d31-a1a6-4b98b90d8059', message: { type: 'user', role: 'user', content: [{ type: 'text', text: '[Image #1]' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: pngHead(800, 400) } }] } } as any))
+  const ui = await $.ui.mount(mountOf('terminal', 'AbovePrompt', BAND, 'above-prompt'))
+  expect((await ui.find({ type: 'Image' }))?.props).toMatchObject({ alt: '[pasted image 1]' })
+})
+
+test('a Read its own row drew is not repeated above the prompt; the next prompt clears the band', { options: { pasted: 'inline' } }, async ($, on) => {
+  const { clock } = world(on)
+  await turn($, on, clock, async () => {
+    await toolUse($, 't1', 'Read', { file_path: '/work/a.png' })
+    await toolUse($, 't2', 'Read', { file_path: '/work/b.png' })
+    const row = await $.ui.mount(mountOf('terminal', 'ToolGroup', READ_A))
+    expect(await row.find({ type: 'Image' })).toBeDefined()
+  })
+  const band = await $.ui.mount(mountOf('terminal', 'AbovePrompt', BAND, 'above-prompt'))
+  expect((await band.findAll({ type: 'Image' })).map(i => (i.props as any).alt)).toEqual(['[b.png]'])
+  await band.unmount()
+  await $.prompt.submit({ text: 'next', wait: false, origin: { kind: 'composer' } } as any)
+  const after = await $.ui.mount(mountOf('terminal', 'AbovePrompt', BAND, 'above-prompt'))
+  expect(await after.find({ type: 'Image' })).toBeUndefined()
 })
