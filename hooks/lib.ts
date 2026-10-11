@@ -230,6 +230,8 @@ export const RENDERERS: Record<Kind, (input: string, out: string, px: number, pa
     return im ? [[im, input, '-thumbnail', `${px}x${px}`, `png:${out}`]] : undefined
   },
   pdf: (input, out, px, page, tools, root) => {
+    // sips draws page 1 in about 60 ms; PDFKit through JXA draws any page in 200-900 ms.
+    if (page === 1 && tools.has('sips')) return [['sips', '-s', 'format', 'png', '-Z', String(px), input, '--out', out]]
     if (tools.has('osascript')) return [['osascript', '-l', 'JavaScript', `${root}/bin/pdfpage.js`, input, String(page), String(px), out]]
     if (tools.has('pdftoppm')) {
       return [['pdftoppm', '-png', '-f', String(page), '-l', String(page), '-scale-to', String(px), '-singlefile', input, out.replace(/\.png$/, '')]]

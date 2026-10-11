@@ -30,9 +30,11 @@ type Thumb = { png: string; size: Size } | { error: string }
 type Preview = { path: string; label: string; key: string }
 
 let host: Promise<Host> | undefined
-const jobs = new Map<string, Promise<Thumb>>()
-const cellJobs = new Map<string, Promise<{ cells: string; columns: number; rows: number } | undefined>>()
+const sizes = new Map<string, Size>()
+const cellCache = new Map<string, { cells: string; columns: number; rows: number }>()
 const bashCalls = new Map<string, { command: string; at: number }>()
+/** The transcript's width as the last draw saw it, so the collector can make cells of the size a row will ask for. */
+let lastColumns = 80
 let isPolling = false
 let isChecking = false
 let pasteDir: { sessionId: string; dir: string } | undefined
@@ -66,50 +68,51 @@ async function run($: $, steps: readonly string[][]): Promise<string | undefined
   return undefined
 }
 
-/** A PNG thumbnail of one page of `path` in the cache, made once per content (path, size, mtime). */
+/**
+ * A PNG thumbnail of one page of `path` in the cache, made once per content (path, size, mtime).
+ *
+ * Only settled results are kept: a draw that is superseded has its calls aborted (its converter killed, its
+ * promise never settling), so in-flight work is never shared between draws. Each run writes a temporary file of
+ * its own and moves it into place, so a killed run leaves no half picture.
+ */
 async function thumbnail($: $, path: string, kind: Kind, page: number): Promise<Thumb> {
   const env = await hostOf($)
   const stat = await $.fs.stat(path).catch(() => undefined)
   if (stat === undefined || stat.kind !== 'file') return { error: 'file not found' }
   if (stat.size > MAX_INPUT_BYTES) return { error: `too big to preview (${Math.round(stat.size / 1048576)} MB)` }
   const out = `${env.cache}/${hash(`${path}|${stat.size}|${stat.mtimeMs}|${page}|${THUMB_PX}`)}.png`
-  let job = jobs.get(out)
-  if (job === undefined) {
-    job = (async (): Promise<Thumb> => {
-      if (!(await $.fs.exists(out))) {
-        const steps = RENDERERS[kind](path, out, THUMB_PX, page, env.tools, env.root)
-        if (steps === undefined) return { error: `no ${kind} converter found (see the lens README)` }
-        await $.fs.write(`${env.cache}/.keep`, '')
-        const failed = await run($, steps)
-        if (failed !== undefined) return { error: failed }
-      }
-      const bytes = await $.fs.read(out, { as: 'bytes' }).catch(() => undefined)
-      const size = bytes && pngSize(bytes.base64)
-      return size ? { png: out, size } : { error: 'the converter made no picture' }
-    })()
-    jobs.set(out, job)
-    job.then(t => { if ('error' in t) jobs.delete(out) })
+  const known = sizes.get(out)
+  if (known) return { png: out, size: known }
+  if (!(await $.fs.exists(out))) {
+    const part = out.replace(/\.png$/, `.${(await $.clock.now()).toString(36)}.part.png`)
+    const steps = RENDERERS[kind](path, part, THUMB_PX, page, env.tools, env.root)
+    if (steps === undefined) return { error: `no ${kind} converter found (see the lens README)` }
+    await $.fs.write(`${env.cache}/.keep`, '')
+    const failed = await run($, [...steps, ['mv', '-f', part, out]])
+    if (failed !== undefined) return { error: failed }
   }
-  return job
+  const bytes = await $.fs.read(out, { as: 'bytes' }).catch(() => undefined)
+  const size = bytes && pngSize(bytes.base64)
+  if (!size) return { error: 'the converter made no picture' }
+  sizes.set(out, size)
+  return { png: out, size }
 }
 
-/** Colored-block cells for a thumbnail, `columns` x `rows` cells (two pixel rows a cell). */
+/** Colored-block cells for a thumbnail, `columns` x `rows` cells (two pixel rows a cell); settled results kept. */
 async function blockCells($: $, png: string, columns: number, rows: number) {
   const key = `${png}|${columns}x${rows}`
-  let job = cellJobs.get(key)
-  if (job === undefined) {
-    job = (async () => {
-      const env = await hostOf($)
-      const plan = pixelsPlan(png, png.replace(/\.png$/, `-${columns}x${rows * 2}`), columns, rows * 2, env.tools)
-      if (plan === undefined || (await run($, plan.steps)) !== undefined) return undefined
-      const file = png.replace(/\.png$/, `-${columns}x${rows * 2}.${plan.format}`)
-      const { base64 } = await $.fs.read(file, { as: 'bytes' })
-      const bytes = Uint8Array.fromBase64(base64)
-      return rasterCells(plan.format === 'bmp' ? parseBmp(bytes) : parsePpm(bytes))
-    })()
-    cellJobs.set(key, job)
-  }
-  return job
+  const known = cellCache.get(key)
+  if (known) return known
+  const env = await hostOf($)
+  const base = png.replace(/\.png$/, `-${columns}x${rows * 2}`)
+  const plan = pixelsPlan(png, base, columns, rows * 2, env.tools)
+  if (plan === undefined || (await run($, plan.steps)) !== undefined) return undefined
+  const read = await $.fs.read(`${base}.${plan.format}`, { as: 'bytes' }).catch(() => undefined)
+  if (read === undefined) return undefined
+  const bytes = Uint8Array.fromBase64(read.base64)
+  const cells = rasterCells(plan.format === 'bmp' ? parseBmp(bytes) : parsePpm(bytes))
+  cellCache.set(key, cells)
+  return cells
 }
 
 /** Writes base64 bytes (a pasted or returned image) to the cache and answers the file's path. */
@@ -154,7 +157,7 @@ async function previews($: $, e: { surface: RenderSurface; viewport?: { columns:
       continue
     }
     const pages = kind === 'pdf' ? cfg.pdfPages : 1
-    const width = Math.max(4, Math.floor((maxColumns - (pages - 1)) / pages))
+    const width = pageWidth(maxColumns, pages)
     const row: RenderElement[] = []
     for (let page = 1; page <= pages; page++) {
       const t = await thumbnail($, item.path, kind, page)
@@ -177,13 +180,16 @@ async function previews($: $, e: { surface: RenderSurface; viewport?: { columns:
   return nodes
 }
 
+const inlineColumns = (viewportColumns: number) => Math.min(120, viewportColumns - 8)
+const pageWidth = (maxColumns: number, pages: number) => Math.max(4, Math.floor((maxColumns - (pages - 1)) / pages))
+
 /** Draws `previews` under what the engine draws for this row, indented like a tool's output. */
 async function under($: $, e: any, next: (e: any) => Promise<RenderElement>, cfg: Config, items: readonly Preview[]): Promise<RenderElement> {
   if (items.length === 0) return next(e)
   const below = await next(e)
   const { Box } = $.ui.resolve(e) as never as { Box: any }
-  const columns = Math.min(120, (e.viewport?.columns ?? 80) - 8)
-  const nodes = await previews($, e, cfg, items, columns, cfg.maxRows)
+  lastColumns = e.viewport?.columns ?? lastColumns
+  const nodes = await previews($, e, cfg, items, inlineColumns(lastColumns), cfg.maxRows)
   if (nodes.length === 0) return below
   return <Box flexDirection="column">{below}<Box flexDirection="column" paddingLeft={5}>{nodes}</Box></Box>
 }
@@ -266,6 +272,21 @@ async function collect($: $, cfg: Config, e: any, uuid: string) {
     }
   }
   await addItems($, found)
+  // Made here, where no draw can supersede the converters, so the row's first draw needs no process: on the
+  // main screen a finished row is printed once, and a draw whose converter was killed would print it bare.
+  const isBlocks = cfg.painter === 'blocks' || (cfg.painter === 'auto' && !env.kitty)
+  for (const item of found) {
+    const kind = kindOf(item.path)
+    const pages = kind === 'pdf' ? cfg.pdfPages : 1
+    for (let page = 1; kind !== undefined && page <= pages; page++) {
+      const t = await thumbnail($, item.path, kind, page)
+      if ('error' in t) break
+      if (isBlocks && cfg.where[item.source] === 'inline') {
+        const cells = fitCells(t.size, cfg.maxRows, pageWidth(inlineColumns(lastColumns), pages))
+        await blockCells($, t.png, cells.columns, cells.rows)
+      }
+    }
+  }
 }
 
 // The draft band: Claude Code caches each paste as <tmp>/<project>/<session>/images/<n>.png and puts an
