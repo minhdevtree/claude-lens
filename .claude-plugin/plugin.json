@@ -1,7 +1,7 @@
 {
   "name": "lens",
   "description": "See images, SVGs and PDF pages in Claude Code where they appear: pasted, read, written or linked",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "author": { "name": "minhdevtree", "url": "https://github.com/minhdevtree" },
   "homepage": "https://github.com/minhdevtree/claude-lens",
   "repository": "https://github.com/minhdevtree/claude-lens",

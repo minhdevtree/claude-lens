@@ -154,7 +154,6 @@ preview as soon as Claude names the file, so this is rare; the `/lens` gallery a
   Code draws the file name instead.
 - Half-block and quadrant thumbnails share a palette of 1024 color pairs per frame, so many at once lose some color.
   Sextants are drawn as colored text and keep theirs.
-- Thumbnails are not shown for rows scrolled off screen in fullscreen mode.
 
 ## How it works
 

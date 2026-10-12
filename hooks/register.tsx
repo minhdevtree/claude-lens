@@ -153,7 +153,6 @@ async function previews($: $, e: { surface: RenderSurface; viewport?: { columns:
   const { Box, Text } = els as never as { Box: any; Text: any }
   const env = await hostOf($)
   const nodes: RenderElement[] = []
-  const offScreen = (e.props as { onScreen?: unknown }).onScreen === null
   for (const item of items) {
     const kind = kindOf(item.path)
     if (kind === undefined || !cfg.kinds[kind]) continue
@@ -168,7 +167,9 @@ async function previews($: $, e: { surface: RenderSurface; viewport?: { columns:
       continue
     }
     const painter = cfg.painter === 'auto' ? (env.kitty ? 'kitty' : 'blocks') : cfg.painter
-    if (painter === 'text' || offScreen) {
+    // Drawn the same on and off screen (`e.props.onScreen`): a row whose Image was swapped for its name off screen
+    // mounted a fresh Image each time it crossed back in, and Claude Code's fullscreen scroll pulled the view down.
+    if (painter === 'text') {
       nodes.push(<Text dimColor>{`  ${item.label}`}</Text>)
       continue
     }

@@ -48,7 +48,7 @@ Why host tools: a hooks module has no WebAssembly, no `eval` or `new Function`, 
 | --- | --- | --- |
 | kitty | `Image` with a `{ file, format: 'png' }` source | terminal, when it paints kitty graphics |
 | blocks | per cell, 1x2, 2x2 or 2x3 pixels split into two colors: half blocks and quadrants as a `Raster`, sextants as colored `Text` runs | any other terminal |
-| text | `Text`, the file name | `painter: text`, or a row scrolled off screen |
+| text | `Text`, the file name | `painter: text` |
 | svg | `Svg` with the file's markup | desktop, VS Code, mobile (no `Image` or `Raster` there) |
 
 `auto` picks kitty when the environment says kitty or Ghostty outside tmux and screen (`TERM`, `TERM_PROGRAM`,

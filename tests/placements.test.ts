@@ -62,6 +62,16 @@ test('a Read in a tool group: a picture under the group row in Ghostty', async (
 
 const READ_A = { isActive: false, isExpanded: false, calls: [{ tool_use_id: 't1', tool: 'Read', input: { file_path: '/work/a.png' }, ...ROW }] }
 
+test('a row scrolled off screen in fullscreen keeps its picture: swapping it for its name pulled the scroll back down', async ($, on) => {
+  world(on)
+  await toolUse($, 't1', 'Read', { file_path: '/work/a.png' })
+  const shown = await $.ui.mount(mountOf('terminal', 'ToolGroup', { ...READ_A, onScreen: { first: 0, last: 3, of: 12 } }))
+  const off = await $.ui.mount(mountOf('terminal', 'ToolGroup', { ...READ_A, onScreen: null }, 'row-2'))
+  const picture = { source: { file: thumbOf('/work/a.png'), format: 'png' }, columns: 40, rows: 10, alt: '[a.png]' }
+  expect((await shown.find({ type: 'Image' }))?.props).toMatchObject(picture)
+  expect((await off.find({ type: 'Image' }))?.props).toMatchObject(picture)
+})
+
 test('the same Read in tmux: quadrant blocks, not a picture', async ($, on) => {
   const { ran } = world(on, { TMUX: '/tmp/tmux-501/default,1,0', TERM_PROGRAM: 'ghostty' })
   await toolUse($, 't1', 'Read', { file_path: '/work/a.png' })
