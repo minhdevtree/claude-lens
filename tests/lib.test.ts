@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import {
-  QUADRANTS, RENDERERS, colorPairs, commandPaths, configOf, fitCell, fitCells, hash, imageLinks, imageNumbers, kindOf, linkLabel, mosaicCells, mosaicFor, packCells, paintsImages, parseBmp, parsePpm, sextantGlyph, textRows,
+  QUADRANTS, RENDERERS, colorPairs, commandPaths, configOf, fitCell, fitCells, hash, imageLinks, imageNumbers, kindOf, pastedLabels, linkLabel, mosaicCells, mosaicFor, packCells, paintsImages, parseBmp, parsePpm, sextantGlyph, textRows,
   pixelsPlan, pngSize, resolvePath, rowKey,
 } from '../hooks/lib'
 
@@ -199,4 +199,11 @@ test('pictures are painted only by kitty and Ghostty outside tmux and screen', (
 
 test('image numbers in a draft', () => {
   expect(imageNumbers('look [Image #2] and [Image #1] again [Image #2]')).toEqual([2, 1])
+})
+
+test('pasted image labels: Claude Code\'s numbers when they match the images one for one', () => {
+  expect(pastedLabels('[Image #78] [Image #79] compare', 2)).toEqual(['Image #78', 'Image #79'])
+  expect(pastedLabels('what is this', 1)).toEqual(['pasted image 1'])
+  expect(pastedLabels('[Image #3] only one tag', 2)).toEqual(['pasted image 1', 'pasted image 2'])
+  expect(pastedLabels('', 0)).toEqual([])
 })

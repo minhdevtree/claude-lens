@@ -373,3 +373,11 @@ export function imageNumbers(draft: string): number[] {
   for (const m of draft.matchAll(/\[Image #(\d+)\]/g)) seen.add(Number(m[1]))
   return [...seen]
 }
+
+/** Labels for a prompt's pasted images, in order: Claude Code's own `Image #n` from the prompt's `[Image #n]` tags
+ *  (the stored row keeps the ids beside the blocks, `imagePasteIds`, but the hook's input does not carry them), or
+ *  `pasted image n` when the tags do not match the images one for one. */
+export function pastedLabels(text: string, count: number): string[] {
+  const nums = imageNumbers(text)
+  return Array.from({ length: count }, (_, i) => (nums.length === count ? `Image #${nums[i]}` : `pasted image ${i + 1}`))
+}

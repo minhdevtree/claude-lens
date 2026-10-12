@@ -50,7 +50,7 @@ Inside tmux, Claude Code uses 256 colors unless you set `CLAUDE_CODE_TMUX_TRUECO
 
 | Source | Example | Shown |
 | --- | --- | --- |
-| Pasted images | `[Image #1]` in your prompt | Above the prompt while you write, then under your message |
+| Pasted images | `[Image #1]` in your prompt | Above the prompt while you write, then under your message, labelled `Image #1` as Claude Code names it |
 | Files Claude reads | Read of a PNG, SVG or PDF | Under the "Read 1 file" row |
 | Files Claude writes | Write or Edit of an SVG, a Bash command that makes `out.png` | Under the tool's result |
 | Image links in replies | `![revenue by month](out/chart.png)` | Under the reply, labelled the way Claude Code draws the link: `revenue by month (chart.png)` |

@@ -177,9 +177,21 @@ test('a pasted image shows under the prompt row it was sent with', async ($, on)
   const uuid = '5ba350cf-854d-4d31-a1a6-4b98b90d8059'
   await $.session.append({ door: 'prompt', origin: { kind: 'composer' }, uuid, message: { type: 'user', role: 'user', content: [{ type: 'text', text: '[Image #1] what is this' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: pngHead(800, 400) } }] } } as any)
   const ui = await $.ui.mount(mountOf('terminal', 'UserMessage', { text: '[Image #1] what is this', origin: { kind: 'composer' }, isExpanded: false }, `${rowKey(uuid)}-000000000000`))
-  expect((await ui.find({ type: 'Image' }))?.props).toMatchObject({ alt: '[pasted image 1]' })
+  expect((await ui.find({ type: 'Image' }))?.props).toMatchObject({ alt: '[Image #1]' })
   const other = await $.ui.mount(mountOf('terminal', 'UserMessage', { text: 'hello', origin: { kind: 'composer' }, isExpanded: false }, 'aaaaaaaa-bbbb-cccc-dddd-000000000000'))
   expect(await other.find({ type: 'Image' })).toBeUndefined()
+})
+
+test('pasted images are labelled with Claude Code\'s own numbers, else counted', async ($, on) => {
+  world(on)
+  const img = (w: number) => ({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: pngHead(w, 400) } })
+  const two = '6ba350cf-854d-4d31-a1a6-4b98b90d8059', bare = '7ba350cf-854d-4d31-a1a6-4b98b90d8059'
+  await $.session.append({ door: 'prompt', origin: { kind: 'composer' }, uuid: two, message: { type: 'user', role: 'user', content: [{ type: 'text', text: '[Image #78] [Image #79] compare' }, img(800), img(801)] } } as any)
+  await $.session.append({ door: 'prompt', origin: { kind: 'composer' }, uuid: bare, message: { type: 'user', role: 'user', content: [{ type: 'text', text: 'what is this' }, img(802)] } } as any)
+  const ui = await $.ui.mount(mountOf('terminal', 'UserMessage', { text: '[Image #78] [Image #79] compare', origin: { kind: 'composer' }, isExpanded: false }, `${rowKey(two)}-000000000000`))
+  expect((await ui.findAll({ type: 'Image' })).map(i => (i.props as any).alt)).toEqual(['[Image #78]', '[Image #79]'])
+  const ui2 = await $.ui.mount(mountOf('terminal', 'UserMessage', { text: 'what is this', origin: { kind: 'composer' }, isExpanded: false }, `${rowKey(bare)}-000000000000`))
+  expect((await ui2.find({ type: 'Image' }))?.props).toMatchObject({ alt: '[pasted image 1]' })
 })
 
 test('a local image link in a reply shows under it; a web link does not', async ($, on) => {
@@ -219,7 +231,7 @@ test('the band above the prompt shows the draft\'s pasted images from the paste 
   await clock.advance(300)
   await clock.advance(300)
   const ui = await $.ui.mount(mountOf('terminal', 'AbovePrompt', { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 100, scroll: { offset: 0, bodyRows: 20 }, view: {} }, 'above-prompt'))
-  expect((await ui.find({ type: 'Image' }))?.props).toMatchObject({ source: { file: thumbOf('/tmp/claude-501/-work/sess-1/images/1.png') }, alt: '[[Image #1]]' })
+  expect((await ui.find({ type: 'Image' }))?.props).toMatchObject({ source: { file: thumbOf('/tmp/claude-501/-work/sess-1/images/1.png') }, alt: '[Image #1]' })
 })
 
 const BAND = { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 100, scroll: { offset: 0, bodyRows: 20 }, view: {} }
@@ -246,7 +258,7 @@ test('a pasted image whose prompt row another mod drew shows above the prompt', 
   const { clock } = world(on)
   await turn($, on, clock, () => $.session.append({ door: 'prompt', origin: { kind: 'composer' }, uuid: '5ba350cf-854d-4d31-a1a6-4b98b90d8059', message: { type: 'user', role: 'user', content: [{ type: 'text', text: '[Image #1]' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: pngHead(800, 400) } }] } } as any))
   const ui = await $.ui.mount(mountOf('terminal', 'AbovePrompt', BAND, 'above-prompt'))
-  expect((await ui.find({ type: 'Image' }))?.props).toMatchObject({ alt: '[pasted image 1]' })
+  expect((await ui.find({ type: 'Image' }))?.props).toMatchObject({ alt: '[Image #1]' })
 })
 
 test('a Read its own row drew is not repeated above the prompt; the next prompt clears the band', { options: { pasted: 'inline' } }, async ($, on) => {

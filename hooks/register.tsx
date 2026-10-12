@@ -3,7 +3,7 @@ import type { EngineInterface, Register, RenderElement, RenderSurface } from 'cl
 
 import type { LensDraftImage, LensItem } from '../types'
 import {
-  MEDIA_EXT, RENDERERS, TOOL_NAMES, baseName, commandPaths, configOf, fitCells, hash, imageLinks, imageNumbers, kindOf, linkLabel,
+  MEDIA_EXT, RENDERERS, TOOL_NAMES, baseName, commandPaths, configOf, fitCells, hash, imageLinks, imageNumbers, kindOf, pastedLabels, linkLabel,
   SAMPLES, mosaicCells, mosaicFor, packCells, paintsImages, parseBmp, parsePpm, pixelsPlan, pngSize, rowKey, textRows,
 } from './lib'
 import type { Config, Kind, Mosaic, Run, Size, Source } from './lib'
@@ -238,12 +238,11 @@ async function collect($: $, cfg: Config, e: any, uuid: string) {
   }
   const found: LensItem[] = []
   if (e.door === 'prompt') {
-    let n = 0
-    for (const b of blocks) {
-      if (b.type !== 'image' || b.source?.type !== 'base64') continue
-      n += 1
+    const images = blocks.filter(b => b.type === 'image' && b.source?.type === 'base64')
+    const labels = pastedLabels(blocks.filter(b => b.type === 'text').map(b => b.text).join('\n'), images.length)
+    for (const [i, b] of images.entries()) {
       const path = await saveBytes($, b.source.data, b.source.media_type)
-      if (path && wants('pasted', path)) found.push({ id: `${uuid}:${n}`, source: 'pasted', path, label: `pasted image ${n}`, row: rowKey(uuid), at })
+      if (path && wants('pasted', path)) found.push({ id: `${uuid}:${i + 1}`, source: 'pasted', path, label: labels[i]!, row: rowKey(uuid), at })
     }
   }
   if (e.door === 'response') {
@@ -465,7 +464,7 @@ export const register: Register = (on, options) => {
     const rows = Math.max(1, Math.min(cfg.maxRows, 6, e.props.maxRows - 4))
     const tiles = async (items: readonly Preview[]) =>
       previews($, e, cfg, items, Math.max(4, Math.floor(e.props.bodyColumns / items.length) - 2), rows)
-    const draftNodes = drafts.length === 0 ? [] : await tiles(drafts.map(d => ({ path: d.path!, label: `[Image #${d.n}]`, key: `draft-${d.n}` })))
+    const draftNodes = drafts.length === 0 ? [] : await tiles(drafts.map(d => ({ path: d.path!, label: `Image #${d.n}`, key: `draft-${d.n}` })))
     const missedNodes = missed.length === 0 ? [] : await tiles(missed.map(item => ({ path: item.path, label: item.label, key: `missed-${hash(item.id)}` })))
     return (
       <Box flexDirection="column">
