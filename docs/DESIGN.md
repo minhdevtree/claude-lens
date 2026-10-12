@@ -141,4 +141,5 @@ Verified on macOS with Claude Code 2.1.296 against a mock Messages API: inline p
 2-page PDF, a reply's image link, a Write of an SVG, a Bash command that made a PNG, a pasted image, the band, the
 gallery pane, the 11 `/config` rows, and a 2.1.294 run. In a pseudo-terminal that answers Claude Code's probes as
 Ghostty, the engine sent each preview as kitty graphics (`a=T,U=1,f=100,t=f`, 1440 placeholder cells for three
-pictures). Not verified: a real kitty or Ghostty window, Linux converters, the desktop app, VS Code and mobile.
+pictures). In CSM 2.127.0 (the built app, its e2e harness, isolated config), `auto` picked kitty from
+`CLAUDE_CODE_FORCE_TERMINAL_IMAGES=1` and CSM painted every preview as a picture (`docs/demo.png`). Not verified: a real kitty or Ghostty window, Linux converters, the desktop app, VS Code and mobile.

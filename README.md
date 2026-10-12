@@ -3,10 +3,10 @@
 See images, SVGs and PDF pages in Claude Code where they appear: the screenshot you paste, the file Claude reads,
 the chart Claude writes, the image a tool returns, the picture a reply links to.
 
-![lens in tmux: a screenshot Claude read, two PDF pages, a chart linked in a reply and an SVG Claude wrote](docs/demo-tmux.png)
+![lens in Claude Code: a dashboard screenshot Claude read, both pages of a PDF, a bar chart linked in a reply and an SVG logo Claude wrote, each drawn as the real picture under its row](docs/demo.png)
 
-*In tmux, with no graphics protocol: every preview above is drawn with colored half blocks. In kitty and Ghostty
-lens draws the real picture.*
+*A real Claude Code session in CSM 2.127.0. The pictures are sharp in kitty, Ghostty and CSM 2.127.0 or later on
+macOS and Linux. Other terminals, tmux, and CSM on Windows get colored blocks (below).*
 
 ## Install
 
@@ -33,8 +33,8 @@ Then run `/reload-plugins` in a session, or start a new one.
 
 | Where Claude Code runs | What lens draws |
 | --- | --- |
-| kitty, Ghostty | The picture itself (kitty graphics protocol) |
-| CSM (Claude Session Manager) | Colored blocks in the finest detail: each cell is split 2x3 (sextants), its two best colors |
+| kitty, Ghostty, CSM (Claude Session Manager) 2.127.0 or later on macOS and Linux | The picture itself (kitty graphics protocol) |
+| CSM on Windows, CSM before 2.127.0 | Colored blocks in the finest detail: each cell is split 2x3 (sextants), its two best colors |
 | tmux, iTerm2, WezTerm, Terminal.app, the VS Code terminal, other apps built on xterm.js | Colored blocks, each cell split 2x2 (quadrants) |
 | Claude desktop app, VS Code extension, mobile | SVG files only, drawn by the app; other previews are left out |
 
@@ -92,7 +92,7 @@ Every setting is a row in `/config` (type `lens` to filter):
 | Images, SVG, PDF | on / off per file type | on |
 | Pasted images | `above` (over the prompt while you write, then under your message), `inline`, `pane` (gallery only), `off` | `above` |
 | Files Claude reads, Files Claude writes, Image links in replies, Images tools return | `inline`, `pane` (gallery only), `off` | `inline` |
-| Drawing | `auto` (pictures in kitty and Ghostty, blocks elsewhere), `kitty`, `blocks`, `text` (file names only) | `auto` |
+| Drawing | `auto` (pictures in kitty, Ghostty and CSM 2.127.0+, blocks elsewhere), `kitty`, `blocks`, `text` (file names only) | `auto` |
 | Block detail | `auto` (sextants in CSM, quadrants elsewhere), `sextant` (2x3 per cell), `quadrant` (2x2), `halfblock` (1x2, what 0.1 drew) | `auto` |
 | Thumbnail rows | 2 to 40 | 10 |
 | PDF pages | 1 to 8 | 1 |
